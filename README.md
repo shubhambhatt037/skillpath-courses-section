@@ -1,133 +1,43 @@
 # Skillpath — courses section
 
-A Framer code component that renders a live course catalogue, built for the junior developer assignment.
+A Framer code component that renders a live course catalogue.
 
-- **Component:** [`CourseGrid.tsx`](./CourseGrid.tsx) — single file, default export, no dependencies beyond `react` and `framer`.
-- **API:** `https://syncsphere-hiv6.onrender.com` — `GET /assignment/course-data` and `GET /assignment/country-code`.
+**Live:** https://abundant-beaver-177762.framer.app
+**Component:** [`CourseGrid.tsx`](./CourseGrid.tsx) — single file, default export, only `react` and `framer`.
+**API:** `https://syncsphere-hiv6.onrender.com` — `GET /assignment/course-data`, `GET /assignment/country-code`.
 
-The rest of the page (nav, hero, footer) is built on the Framer canvas, and so are this section's heading and description. **The component owns only what comes from the API** — the course cards and the controls that filter them. Everything a non-developer would want to reword is a real Framer text layer, editable on canvas and sized per breakpoint.
+The component owns only what comes from the API: the cards and the controls that filter them. The heading, description, hero and footer are Framer canvas layers.
 
-Each card shows exactly four things plus one badge: course name, description clamped to two lines, price in the right currency, and the course's category. The refundable badge appears only when `refundable` is `true`. `courseType` is deliberately not rendered — the brief asked for four fields, and a card that shows everything available stops being scannable.
+Each card shows category, name, description clamped to two lines, and price. The refundable badge shows only when `refundable` is `true`.
 
----
+## States
 
-## The four states
-
-| State | What triggers it | What the visitor sees |
+| State | Trigger | Shown |
 | --- | --- | --- |
-| Loading | Initial mount, or the retry button | Six skeleton cards in the real grid layout |
-| Error | All 3 attempts failed | A panel naming what went wrong, plus **Try again** |
-| Empty catalogue | API returned `200` with `[]` | "No courses yet" plus **Refresh** |
-| Empty search | Catalogue has items, filter matched none | "Nothing matches …" plus **Clear search** |
-| Ready | At least one renderable course | The grid |
+| Loading | Mount, or retry | 6 skeleton cards in the real grid |
+| Error | 3 attempts failed | What went wrong + **Try again** |
+| Empty catalogue | `200` with `[]` | "No courses yet" + **Refresh** |
+| Empty search | Filter matched nothing | "Nothing matches …" + **Clear search** |
+| Ready | ≥ 1 usable course | The grid |
 
-The last two are deliberately separate. "The server has no courses" and "your search is too narrow" are different problems and need different buttons. Collapsing them into one "no results" message is the kind of thing that reads fine in code review and confuses a real user.
+The two empty states are separate on purpose: "the server has no courses" and "your search is too narrow" need different buttons.
 
-## The flaky API
+## Decisions
 
-The API fails roughly one request in three, on both endpoints. Two things handle that:
+**The flaky API.** 3 attempts with a 500ms/1000ms pause takes the odds of an error screen from ~33% to ~4%, so the error state stays reachable without being the normal path. Each attempt has its own 15s timeout, because the host cold-starts and a sleeping server would otherwise spin forever. Every request aborts on unmount.
 
-1. **Retry, up to 3 attempts** with a 500ms then 1000ms pause. That takes the chance of showing an error screen from about 33% to about 4%. The error state still exists and is still reachable, it just stops being the common case.
-2. **A per-attempt timeout of 15s.** The API is on a free host that cold-starts. Without a deadline, a sleeping server leaves the section spinning forever. With one, the attempt is abandoned and the retry usually lands on a warmed-up server.
+**Country fails, courses work.** The two requests are independent — a failed region lookup never blocks the catalogue. It falls back to a currency set in the Framer panel, prices everything in it, and says so in a notice with a retry. Silently defaulting to USD is the option that actually hurts someone: an Indian visitor would only find out at checkout.
 
-Every request is tied to an `AbortController` that fires on unmount, so navigating away mid-flight does not leave a `setState` running against a dead component.
+**Price math.** Both fields are integers in the currency's minor unit, so both divide by 100 — `199900` paise is ₹1,999, `3999` cents is $39.99. `Intl.NumberFormat` handles grouping. Decimals appear only when the minor unit isn't a whole major unit, because ₹1,999.00 reads like a mistake. Sorting uses the same field the card displays, not the hidden one.
 
-## When the country call fails but the courses call works
+**Responsive.** A `ResizeObserver` measures the component, not the window — a 1280px viewport says nothing about how wide this section actually is. Content `<560px` → 1 column, `<900px` → 2, else 3. Cards are `minmax(0, 1fr)` with `min-width: 0` and `overflow-wrap`, so a long unbroken word can't push the grid sideways. Card count is never assumed.
 
-This is the interesting one, and the brief is right that there is no single correct answer.
-
-**What this does:** the two requests are completely independent. A failed region lookup never blocks the catalogue. When it fails, the section falls back to a currency chosen by the designer in the Framer panel, renders every price in it, and shows a notice above the grid saying the region could not be confirmed and offering a retry.
-
-**Why not the alternatives:**
-
-- *Hide prices until the region is known* — the catalogue becomes useless roughly a third of the time, to avoid an error that costs the visitor nothing.
-- *Show a spinner over the whole section* — same cost, and it blames the visitor's connection for our problem.
-- *Silently default to USD* — this is the one that actually causes harm. An Indian visitor sees `$39.99`, assumes that is the price, and finds out otherwise at checkout. Guessing silently is worse than guessing loudly.
-
-So: guess, but say that you are guessing, and give them a way to fix it.
-
-## The price math
-
-Both prices arrive as integers in the currency's **minor unit**, so both divide by 100.
-
-```
-199900 paise → ₹1,999      (not ₹1,99,900)
-  3999 cents → $39.99
-```
-
-Formatting goes through `Intl.NumberFormat` with `en-IN`/`INR` and `en-US`/`USD`, so grouping is locale-correct (₹1,29,999 uses Indian lakh grouping, $1,299.99 does not).
-
-Decimals are decided per value rather than fixed: `₹1,999.00` reads like a mistake, `$39.99` needs both digits. So the fraction digits appear only when the minor unit is not a whole major unit.
-
-**Sorting uses the same field the card displays.** The two price lists happen to rank identically today, but sorting by a number the visitor cannot see is a bug waiting for the first time they diverge.
-
-## Responsive: 3 / 2 / 1
-
-The grid measures **the component**, not the window, via a `ResizeObserver` on the root.
-
-A viewport media query gets this wrong the moment the component is dropped into a narrower container — a 1280px window tells you nothing about how much room this particular section has. Measuring the element itself is always right, and it means the component behaves correctly anywhere on the canvas.
-
-- `< 560px` → 1 column
-- `560–899px` → 2 columns
-- `≥ 900px` → 3 columns
-
-Which lands Framer's three breakpoints on 3 / 2 / 1. The component receives the section width minus its gutters: desktop 1200 → 1120 → 3, tablet 810 → 746 → 2, phone 390 → 350 → 1. All three verified in a browser with no horizontal overflow.
-
-Before the first measurement (server render, first paint) it assumes 3 columns rather than flashing a single-column layout.
-
-Columns are `minmax(0, 1fr)` rather than `1fr`, which stops a *track* from growing past its share. That alone is not enough: grid and flex items default to `min-width: auto`, so the card inside the track still refuses to shrink below its longest word. Tested with a 400-character unbroken token, that scrolled the whole page sideways (375px viewport, 881px scroll width). The card also needs `min-width: 0`, and the title and description need `overflow-wrap: anywhere`. With all three, the same token wraps and the page stays put.
-
-**The component does not set its own padding.** The section's gutters and max width belong to the canvas, so the width the observer reports is already the space available to the cards, and nothing the component renders can change its own measurement.
-
-That was not always true. An earlier version set its own padding from the width it measured, which is a feedback loop: between 600px and 640px outer width the padding shrank to 20px, which pushed the measured content box back over the threshold, which grew the padding to 40px, which pushed it back under, every frame. It was fixed first by measuring the border box (which padding cannot change), and then removed as a class of bug entirely when the padding moved to the canvas.
-
-The measurement is also seeded synchronously on mount from `offsetWidth` rather than waiting for the observer's first delivery. ResizeObserver callbacks are tied to frame production, so in a backgrounded or hidden tab the first delivery may never arrive and the component would sit on its 3-column default.
-
-Card count is never assumed. The grid takes whatever length the array has, cards stretch to equal height via `align-items: stretch` and `height: 100%`, and the price row is pinned to the bottom with `margin-top: auto` so cards line up regardless of how long each description is.
-
-## Property controls
-
-Four. The brief asked for two.
-
-| Control | Type | Why |
-| --- | --- | --- |
-| Accent | Color | Category chips, and the button gradient |
-| Fallback | Enum (US / IN) | Which currency to use when the region lookup fails |
-| Search | Boolean | Show or hide the search box |
-| Sort | Boolean | Show or hide the sort dropdown |
-
-There were six. Title and Subtitle were removed once the heading and description became canvas text layers — a panel text field is a worse way to edit a heading than the heading itself, and keeping both would have meant two places to change one string.
-
-The accent is `#4253CF`. Buttons render it as a gradient into a darker version of itself, and that dark stop is **derived** with `color-mix(in srgb, accent 62%, black)` rather than stored as a second colour, so changing the accent in the panel keeps the gradient coherent instead of leaving a mismatched dark end. The gradient is applied as `background-image` with the flat accent as `background-color`, so if `color-mix` is unsupported only the gradient drops and the button keeps a solid fill. White label text stays above 4.5:1 at both ends of the ramp (6.2:1 and 11.2:1).
-
-**Fallback** is the one worth pointing at. It turns a hardcoded engineering guess into a decision the person who owns the page can make, which is the whole argument for property controls.
-
-## Other decisions worth knowing
-
-- **No custom request headers.** Adding any would turn these into CORS preflighted requests and make the browser send an `OPTIONS` the API does not need to serve. A bare `GET` stays a "simple request". Everything except GET returns 405, and reading data needs nothing more.
-- **Malformed rows are dropped, not rendered.** Anything without a name and two numeric prices cannot be displayed honestly, so it is filtered out rather than shown as `undefined` or `₹NaN`.
-- **`color-mix()` instead of parsing the accent colour.** The Framer Color control hands back hex, `rgb()` or `hsla()` depending on what was picked. An earlier version parsed hex only and silently returned the colour unchanged for the others, which painted an opaque chip with same-colour text on it. `color-mix` takes any CSS colour, and the CSS rule carries a neutral fallback so an unsupported browser still gets legible text.
-- **The fallback enum value is normalised.** Framer's docs say an Enum control passes the option *value* (`"IN"`), but its DSL reports the option's *label* (`"Indian rupees"`) back. Rather than depend on which one arrives at runtime, both are accepted. Two lines, and it removes the only path where a control could silently price an Indian visitor in dollars.
-- **No `startTransition` on the search filter.** It is in Framer's recommended patterns, but with at most ten items the filter is not a bottleneck and adding it would be cargo cult.
-- **Accessibility:** `role="status"` on the loading and notice regions, `role="alert"` on the error, `aria-label` on both inputs, real `<button>` elements, semantic `<section>`/`<article>`, and `prefers-reduced-motion` disabling the shimmer and hover lift.
-
-## What testing found
-
-The section was exercised against a local harness that renders this exact file with a stubbed `framer` module and a scripted `fetch`, so every state could be forced rather than waited for. Four bugs came out of it:
-
-| Bug | Symptom | Fix |
-| --- | --- | --- |
-| Colour control format | Category chip rendered as a solid block with invisible same-colour text | Dropped hex parsing for `color-mix()` plus a neutral CSS fallback |
-| Flex gap on a sentence | Notice read "US dollars **.** Retry" with the full stop floating | Notice is a block, not a flex row |
-| Padding feedback loop | Outer widths 600–639px oscillate between gutter sizes every frame | Measure the border box; later removed entirely by moving padding to the canvas |
-| Grid blowout | A 400-char unbroken token scrolled the page sideways | `min-width: 0` on the card, `overflow-wrap: anywhere` on the text |
-
-Verified behaviour: 3/2/1 columns at the documented widths with no horizontal overflow, descriptions clamped to exactly 2 lines, retry making exactly 3 attempts then stopping, silent recovery when the API fails twice then succeeds, malformed rows (including a raw `null`) dropped without rendering `undefined` or `NaN`, and both empty states reachable and distinct.
+**Property controls.** Accent (colour), Fallback (which currency when the region lookup fails), Search and Sort (show/hide). Fallback is the one that matters — it turns a hardcoded guess into the page owner's decision.
 
 ## Known gaps
 
-- No caching between mounts. Every mount refetches, including the region lookup.
-- The retry button refetches both endpoints even when only one failed. Correct, but wasteful.
-- No test coverage. The price formatter and the response parser are pure functions and are the obvious first candidates.
-- The skeleton always shows six cards; the real response returns five to ten, so the layout shifts slightly once data lands.
-- The harness lives outside this repo, so the scenarios are not committed here and cannot be re-run by a reviewer.
+- No caching between mounts; every mount refetches.
+- Retry refetches both endpoints even when only one failed.
+- No tests. The price formatter and response parser are pure functions and the obvious first candidates.
+- The skeleton always shows 6 cards while the API returns 5–10, so there's a small shift when data lands.
+- Same-page anchor links (hero CTA, nav, footer) update the URL but don't scroll. Framer's link runtime prevents the default and doesn't scroll to the fragment; the scroll target is configured correctly and native hash navigation works.

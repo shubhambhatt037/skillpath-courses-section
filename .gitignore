@@ -1,2 +1,6 @@
 .DS_Store
 node_modules/
+
+# Personal prep: the draft note, the AI disclosure and the call-prep answers.
+# Kept locally, deliberately not published to the repo the reviewer reads.
+SUBMISSION-NOTES.md
