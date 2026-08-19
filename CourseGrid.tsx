@@ -32,9 +32,15 @@ const ATTEMPT_TIMEOUT_MS = 15000
 const RETRY_DELAY_STEP_MS = 500
 
 // Card grid breakpoints, measured on the component itself rather than the
-// viewport. See useElementWidth below for why.
+// viewport. See useElementWidth below for why. These are compared against the
+// space available *inside* the padding, not the component's outer width.
 const TWO_COLUMN_MIN_WIDTH = 560
 const THREE_COLUMN_MIN_WIDTH = 900
+
+// Below this outer width the section drops to phone gutters.
+const NARROW_LAYOUT_MAX_WIDTH = 640
+const GUTTER_NARROW = 20
+const GUTTER_WIDE = 40
 
 const SKELETON_COUNT = 6
 
@@ -177,6 +183,16 @@ function parseCourses(data: unknown): Course[] {
     return data.filter(isRenderableCourse)
 }
 
+/**
+ * The Enum control passes the option value ("IN" / "US"), but Framer's own
+ * DSL reports the option's display label back. Rather than depend on which
+ * one arrives, accept both. Getting this wrong would silently price an Indian
+ * visitor in dollars, which is the one failure worth spending two lines on.
+ */
+function normalizeCountry(value: string): CountryCode {
+    return value === "IN" || value === "Indian rupees" ? "IN" : "US"
+}
+
 function parseCountryCode(data: unknown): CountryCode | null {
     if (typeof data !== "object" || data === null) return null
     const code = (data as { country_code?: unknown }).country_code
@@ -249,17 +265,31 @@ function sortablePrice(course: Course, country: CountryCode): number {
  * wrong the moment someone drops this component into a narrower container,
  * because a 1280px window says nothing about how much room this section
  * actually has. A ResizeObserver on the root always matches reality.
+ *
+ * This reads the *border box*, not `contentRect`. The component changes its
+ * own horizontal padding at narrow widths, so measuring the content box would
+ * make the measurement depend on the padding that measurement feeds. Between
+ * roughly 600px and 640px that loop oscillates: the padding shrinks, which
+ * widens the content box past the threshold, which grows the padding back.
+ * The border box cannot be changed by padding, so it is a stable input.
  */
 function useElementWidth(ref: { current: HTMLElement | null }): number {
     const [width, setWidth] = useState(0)
 
     useEffect(() => {
         const element = ref.current
-        if (!element || typeof ResizeObserver === "undefined") return
+        if (!element) return
 
+        // Seed synchronously so the first committed paint already has a real
+        // width, instead of waiting for the observer's first delivery.
+        setWidth(element.offsetWidth)
+
+        if (typeof ResizeObserver === "undefined") return
         const observer = new ResizeObserver((entries) => {
             const entry = entries[0]
-            if (entry) setWidth(entry.contentRect.width)
+            if (!entry) return
+            const borderBox = entry.borderBoxSize && entry.borderBoxSize[0]
+            setWidth(borderBox ? borderBox.inlineSize : element.offsetWidth)
         })
         observer.observe(element)
         return () => observer.disconnect()
@@ -268,11 +298,24 @@ function useElementWidth(ref: { current: HTMLElement | null }): number {
     return width
 }
 
-/** Width 0 means "not measured yet" (server render, first paint): assume desktop. */
-function columnsForWidth(width: number): number {
-    if (width === 0) return 3
-    if (width < TWO_COLUMN_MIN_WIDTH) return 1
-    if (width < THREE_COLUMN_MIN_WIDTH) return 2
+/** Phone gutters on narrow embeds, roomier ones otherwise. */
+function gutterForWidth(outerWidth: number): number {
+    return outerWidth > 0 && outerWidth < NARROW_LAYOUT_MAX_WIDTH
+        ? GUTTER_NARROW
+        : GUTTER_WIDE
+}
+
+/** Space actually available to the cards, derived from one stable input. */
+function contentWidthFor(outerWidth: number): number {
+    if (outerWidth === 0) return 0
+    return Math.max(0, outerWidth - gutterForWidth(outerWidth) * 2)
+}
+
+/** Content width 0 means "not measured yet" (server render): assume desktop. */
+function columnsForContentWidth(contentWidth: number): number {
+    if (contentWidth === 0) return 3
+    if (contentWidth < TWO_COLUMN_MIN_WIDTH) return 1
+    if (contentWidth < THREE_COLUMN_MIN_WIDTH) return 2
     return 3
 }
 
@@ -301,8 +344,9 @@ export default function CourseGrid(props: CourseGridProps) {
     } = props
 
     const rootRef = useRef<HTMLDivElement>(null)
-    const width = useElementWidth(rootRef)
-    const columns = columnsForWidth(width)
+    const outerWidth = useElementWidth(rootRef)
+    const gutter = gutterForWidth(outerWidth)
+    const columns = columnsForContentWidth(contentWidthFor(outerWidth))
 
     // Bumping this re-runs both effects below, which is what the retry button does.
     const [reloadToken, setReloadToken] = useState(0)
@@ -366,7 +410,8 @@ export default function CourseGrid(props: CourseGridProps) {
     // Prices must render even when the region is unknown. Showing nothing, or a
     // spinner over a loaded catalogue, would be worse than showing a clearly
     // labelled default — so we fall back and say so in the notice below.
-    const activeCountry: CountryCode = country ?? fallbackCountry
+    const safeFallback = normalizeCountry(String(fallbackCountry))
+    const activeCountry: CountryCode = country ?? safeFallback
     const usingFallbackCurrency = country === null && countryFailed
 
     const visibleCourses = useMemo(() => {
@@ -416,7 +461,8 @@ export default function CourseGrid(props: CourseGridProps) {
                 width: "100%",
                 fontFamily: FONT_STACK,
                 color: INK,
-                padding: width && width < TWO_COLUMN_MIN_WIDTH ? "56px 20px" : "96px 40px",
+                padding:
+                    gutter === GUTTER_NARROW ? "56px 20px" : "96px 40px",
             }}
         >
             <style>{SCOPED_CSS}</style>
@@ -513,14 +559,13 @@ export default function CourseGrid(props: CourseGridProps) {
 
                 {usingFallbackCurrency && coursesPhase === "ready" && (
                     <p className="sp-notice" role="status">
-                        <span aria-hidden="true">•</span> We could not confirm
-                        your region, so prices are shown in{" "}
+                        We could not confirm your region, so prices are shown
+                        in{" "}
                         <strong>
-                            {fallbackCountry === "IN"
+                            {safeFallback === "IN"
                                 ? "Indian rupees"
                                 : "US dollars"}
-                        </strong>
-                        .{" "}
+                        </strong>{". "}
                         <button
                             type="button"
                             className="sp-inline-button"
@@ -773,6 +818,10 @@ const SCOPED_CSS = `
     flex-direction: column;
     height: 100%;
     box-sizing: border-box;
+    /* Grid and flex items default to min-width:auto, which is the real cause
+       of horizontal blowout: minmax(0, 1fr) constrains the track, but the card
+       inside it will still refuse to shrink below its longest word. */
+    min-width: 0;
     padding: 24px;
     background: ${SURFACE};
     border: 1px solid ${LINE};
@@ -788,6 +837,12 @@ const SCOPED_CSS = `
     transform: none;
     box-shadow: none;
     border-color: ${LINE};
+}
+.sp-card h3,
+.sp-clamp-2 {
+    /* A single unbroken token (long URL, compound word) would otherwise push
+       past the card and scroll the whole page sideways. */
+    overflow-wrap: anywhere;
 }
 .sp-clamp-2 {
     margin: 10px 0 0;
@@ -868,10 +923,7 @@ const SCOPED_CSS = `
     background: ${SURFACE};
 }
 .sp-notice {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
+    display: block;
     margin: 0 0 24px;
     padding: 12px 16px;
     font-size: 14px;
