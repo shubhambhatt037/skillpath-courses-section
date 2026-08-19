@@ -91,10 +91,12 @@ Six, all things a designer would actually ask for:
 | --- | --- | --- |
 | Title | String | Section heading |
 | Subtitle | String | Supporting line |
-| Accent | Color | Chips, buttons |
+| Accent | Color | Category chips, and the button gradient |
 | Fallback | Enum (US / IN) | Which currency to use when the region lookup fails |
 | Search | Boolean | Show or hide the search box |
 | Sort | Boolean | Show or hide the sort dropdown |
+
+The accent is `#4253CF`. Buttons render it as a gradient into a darker version of itself, and that dark stop is **derived** with `color-mix(in srgb, accent 62%, black)` rather than stored as a second colour, so changing the accent in the panel keeps the gradient coherent instead of leaving a mismatched dark end. The gradient is applied as `background-image` with the flat accent as `background-color`, so if `color-mix` is unsupported only the gradient drops and the button keeps a solid fill. White label text stays above 4.5:1 at both ends of the ramp (6.2:1 and 11.2:1).
 
 **Fallback** is the one worth pointing at. It turns a hardcoded engineering guess into a decision the person who owns the page can make, which is the whole argument for property controls.
 

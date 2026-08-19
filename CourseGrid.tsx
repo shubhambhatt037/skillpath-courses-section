@@ -600,7 +600,10 @@ export default function CourseGrid(props: CourseGridProps) {
                         <button
                             type="button"
                             className="sp-button"
-                            style={{ background: accentColor }}
+                            style={{
+                                backgroundColor: accentColor,
+                                backgroundImage: accentGradient(accentColor),
+                            }}
                             onClick={reload}
                         >
                             Try again
@@ -618,7 +621,10 @@ export default function CourseGrid(props: CourseGridProps) {
                         <button
                             type="button"
                             className="sp-button"
-                            style={{ background: accentColor }}
+                            style={{
+                                backgroundColor: accentColor,
+                                backgroundImage: accentGradient(accentColor),
+                            }}
                             onClick={reload}
                         >
                             Refresh
@@ -638,7 +644,10 @@ export default function CourseGrid(props: CourseGridProps) {
                         <button
                             type="button"
                             className="sp-button"
-                            style={{ background: accentColor }}
+                            style={{
+                                backgroundColor: accentColor,
+                                backgroundImage: accentGradient(accentColor),
+                            }}
                             onClick={() => setQuery("")}
                         >
                             Clear search
@@ -810,6 +819,18 @@ function mixIntoWhite(color: string, percent: number): string {
     return `color-mix(in srgb, ${color} ${percent}%, white)`
 }
 
+/**
+ * The accent, falling into a darker version of itself.
+ *
+ * The dark stop is derived from the accent rather than hardcoded as a second
+ * colour, so the gradient still holds together if a designer changes the
+ * accent in the panel. Mixing 62% of the accent into black keeps white label
+ * text above 4.5:1 at both ends of the ramp.
+ */
+function accentGradient(color: string): string {
+    return `linear-gradient(135deg, ${color} 0%, color-mix(in srgb, ${color} 62%, black) 100%)`
+}
+
 // Hover, focus rings, the line clamp and the shimmer keyframes cannot be
 // expressed as inline styles, so they live here.
 const SCOPED_CSS = `
@@ -970,7 +991,7 @@ addPropertyControls(CourseGrid, {
     accentColor: {
         type: ControlType.Color,
         title: "Accent",
-        defaultValue: "#4F46E5",
+        defaultValue: "#4253CF",
     },
     fallbackCountry: {
         type: ControlType.Enum,
