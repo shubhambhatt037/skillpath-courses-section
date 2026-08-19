@@ -5,7 +5,9 @@ A Framer code component that renders a live course catalogue, built for the juni
 - **Component:** [`CourseGrid.tsx`](./CourseGrid.tsx) — single file, default export, no dependencies beyond `react` and `framer`.
 - **API:** `https://syncsphere-hiv6.onrender.com` — `GET /assignment/course-data` and `GET /assignment/country-code`.
 
-The rest of the page (nav, hero, footer) is built on the Framer canvas. Only this section is code.
+The rest of the page (nav, hero, footer) is built on the Framer canvas, and so are this section's heading and description. **The component owns only what comes from the API** — the course cards and the controls that filter them. Everything a non-developer would want to reword is a real Framer text layer, editable on canvas and sized per breakpoint.
+
+Each card shows exactly four things plus one badge: course name, description clamped to two lines, price in the right currency, and the course's category. The refundable badge appears only when `refundable` is `true`. `courseType` is deliberately not rendered — the brief asked for four fields, and a card that shows everything available stops being scannable.
 
 ---
 
@@ -65,19 +67,19 @@ The grid measures **the component**, not the window, via a `ResizeObserver` on t
 
 A viewport media query gets this wrong the moment the component is dropped into a narrower container — a 1280px window tells you nothing about how much room this particular section has. Measuring the element itself is always right, and it means the component behaves correctly anywhere on the canvas.
 
-Thresholds are on the space available *inside* the gutters, not the outer width:
+- `< 560px` → 1 column
+- `560–899px` → 2 columns
+- `≥ 900px` → 3 columns
 
-- content `< 560px` → 1 column
-- content `560–899px` → 2 columns
-- content `≥ 900px` → 3 columns
-
-Which lands Framer's three breakpoints on 3 / 2 / 1: desktop 1200 → 1120 content → 3, tablet 810 → 730 → 2, phone 390 → 350 → 1.
+Which lands Framer's three breakpoints on 3 / 2 / 1. The component receives the section width minus its gutters: desktop 1200 → 1120 → 3, tablet 810 → 746 → 2, phone 390 → 350 → 1. All three verified in a browser with no horizontal overflow.
 
 Before the first measurement (server render, first paint) it assumes 3 columns rather than flashing a single-column layout.
 
 Columns are `minmax(0, 1fr)` rather than `1fr`, which stops a *track* from growing past its share. That alone is not enough: grid and flex items default to `min-width: auto`, so the card inside the track still refuses to shrink below its longest word. Tested with a 400-character unbroken token, that scrolled the whole page sideways (375px viewport, 881px scroll width). The card also needs `min-width: 0`, and the title and description need `overflow-wrap: anywhere`. With all three, the same token wraps and the page stays put.
 
-**The width it measures is the border box, not `contentRect`.** The component sets its own horizontal padding at narrow widths, so measuring the content box makes the measurement depend on the padding that measurement feeds. Between 600px and 640px outer width that loop oscillates: padding shrinks to 20px, which pushes the content box back over the threshold, which grows padding to 40px, which pushes it back under. The border box cannot be changed by padding, so it is a stable input, and the gutter and the column count are both derived from that one number.
+**The component does not set its own padding.** The section's gutters and max width belong to the canvas, so the width the observer reports is already the space available to the cards, and nothing the component renders can change its own measurement.
+
+That was not always true. An earlier version set its own padding from the width it measured, which is a feedback loop: between 600px and 640px outer width the padding shrank to 20px, which pushed the measured content box back over the threshold, which grew the padding to 40px, which pushed it back under, every frame. It was fixed first by measuring the border box (which padding cannot change), and then removed as a class of bug entirely when the padding moved to the canvas.
 
 The measurement is also seeded synchronously on mount from `offsetWidth` rather than waiting for the observer's first delivery. ResizeObserver callbacks are tied to frame production, so in a backgrounded or hidden tab the first delivery may never arrive and the component would sit on its 3-column default.
 
@@ -85,16 +87,16 @@ Card count is never assumed. The grid takes whatever length the array has, cards
 
 ## Property controls
 
-Six, all things a designer would actually ask for:
+Four. The brief asked for two.
 
 | Control | Type | Why |
 | --- | --- | --- |
-| Title | String | Section heading |
-| Subtitle | String | Supporting line |
 | Accent | Color | Category chips, and the button gradient |
 | Fallback | Enum (US / IN) | Which currency to use when the region lookup fails |
 | Search | Boolean | Show or hide the search box |
 | Sort | Boolean | Show or hide the sort dropdown |
+
+There were six. Title and Subtitle were removed once the heading and description became canvas text layers — a panel text field is a worse way to edit a heading than the heading itself, and keeping both would have meant two places to change one string.
 
 The accent is `#4253CF`. Buttons render it as a gradient into a darker version of itself, and that dark stop is **derived** with `color-mix(in srgb, accent 62%, black)` rather than stored as a second colour, so changing the accent in the panel keeps the gradient coherent instead of leaving a mismatched dark end. The gradient is applied as `background-image` with the flat accent as `background-color`, so if `color-mix` is unsupported only the gradient drops and the button keeps a solid fill. White label text stays above 4.5:1 at both ends of the ramp (6.2:1 and 11.2:1).
 
@@ -117,7 +119,7 @@ The section was exercised against a local harness that renders this exact file w
 | --- | --- | --- |
 | Colour control format | Category chip rendered as a solid block with invisible same-colour text | Dropped hex parsing for `color-mix()` plus a neutral CSS fallback |
 | Flex gap on a sentence | Notice read "US dollars **.** Retry" with the full stop floating | Notice is a block, not a flex row |
-| Padding feedback loop | Outer widths 600–639px oscillate between gutter sizes every frame | Measure the border box; derive gutter and columns from it |
+| Padding feedback loop | Outer widths 600–639px oscillate between gutter sizes every frame | Measure the border box; later removed entirely by moving padding to the canvas |
 | Grid blowout | A 400-char unbroken token scrolled the page sideways | `min-width: 0` on the card, `overflow-wrap: anywhere` on the text |
 
 Verified behaviour: 3/2/1 columns at the documented widths with no horizontal overflow, descriptions clamped to exactly 2 lines, retry making exactly 3 attempts then stopping, silent recovery when the API fails twice then succeeds, malformed rows (including a raw `null`) dropped without rendering `undefined` or `NaN`, and both empty states reachable and distinct.

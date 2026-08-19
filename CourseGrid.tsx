@@ -37,10 +37,6 @@ const RETRY_DELAY_STEP_MS = 500
 const TWO_COLUMN_MIN_WIDTH = 560
 const THREE_COLUMN_MIN_WIDTH = 900
 
-// Below this outer width the section drops to phone gutters.
-const NARROW_LAYOUT_MAX_WIDTH = 640
-const GUTTER_NARROW = 20
-const GUTTER_WIDE = 40
 
 const SKELETON_COUNT = 6
 
@@ -68,8 +64,6 @@ type LoadPhase = "loading" | "ready" | "error"
 type SortOrder = "featured" | "price-asc" | "price-desc"
 
 interface CourseGridProps {
-    title: string
-    subtitle: string
     accentColor: string
     fallbackCountry: CountryCode
     showSearch: boolean
@@ -298,24 +292,19 @@ function useElementWidth(ref: { current: HTMLElement | null }): number {
     return width
 }
 
-/** Phone gutters on narrow embeds, roomier ones otherwise. */
-function gutterForWidth(outerWidth: number): number {
-    return outerWidth > 0 && outerWidth < NARROW_LAYOUT_MAX_WIDTH
-        ? GUTTER_NARROW
-        : GUTTER_WIDE
-}
-
-/** Space actually available to the cards, derived from one stable input. */
-function contentWidthFor(outerWidth: number): number {
-    if (outerWidth === 0) return 0
-    return Math.max(0, outerWidth - gutterForWidth(outerWidth) * 2)
-}
-
-/** Content width 0 means "not measured yet" (server render): assume desktop. */
-function columnsForContentWidth(contentWidth: number): number {
-    if (contentWidth === 0) return 3
-    if (contentWidth < TWO_COLUMN_MIN_WIDTH) return 1
-    if (contentWidth < THREE_COLUMN_MIN_WIDTH) return 2
+/**
+ * Width 0 means "not measured yet" (server render): assume desktop rather
+ * than flashing a single column.
+ *
+ * The section's padding and max width belong to the Framer canvas, not to
+ * this component, so the measured width is already the space available to the
+ * cards. Nothing this component sets can change its own measurement, which is
+ * what an earlier version got wrong.
+ */
+function columnsForWidth(width: number): number {
+    if (width === 0) return 3
+    if (width < TWO_COLUMN_MIN_WIDTH) return 1
+    if (width < THREE_COLUMN_MIN_WIDTH) return 2
     return 3
 }
 
@@ -334,8 +323,6 @@ function columnsForContentWidth(contentWidth: number): number {
  */
 export default function CourseGrid(props: CourseGridProps) {
     const {
-        title,
-        subtitle,
         accentColor,
         fallbackCountry,
         showSearch,
@@ -344,9 +331,8 @@ export default function CourseGrid(props: CourseGridProps) {
     } = props
 
     const rootRef = useRef<HTMLDivElement>(null)
-    const outerWidth = useElementWidth(rootRef)
-    const gutter = gutterForWidth(outerWidth)
-    const columns = columnsForContentWidth(contentWidthFor(outerWidth))
+    const width = useElementWidth(rootRef)
+    const columns = columnsForWidth(width)
 
     // Bumping this re-runs both effects below, which is what the retry button does.
     const [reloadToken, setReloadToken] = useState(0)
@@ -461,49 +447,24 @@ export default function CourseGrid(props: CourseGridProps) {
                 width: "100%",
                 fontFamily: FONT_STACK,
                 color: INK,
-                padding:
-                    gutter === GUTTER_NARROW ? "56px 20px" : "96px 40px",
             }}
         >
             <style>{SCOPED_CSS}</style>
 
-            <div style={{ maxWidth: 1120, margin: "0 auto" }}>
-                <header
-                    style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        alignItems: "flex-end",
-                        justifyContent: "space-between",
-                        gap: 24,
-                        marginBottom: 40,
-                    }}
-                >
-                    <div style={{ maxWidth: 560 }}>
-                        <h2
-                            style={{
-                                margin: 0,
-                                fontSize: columns === 1 ? 32 : 44,
-                                lineHeight: 1.08,
-                                letterSpacing: "-0.035em",
-                                fontWeight: 700,
-                            }}
-                        >
-                            {title}
-                        </h2>
-                        <p
-                            style={{
-                                margin: "14px 0 0",
-                                fontSize: 17,
-                                lineHeight: 1.5,
-                                color: MUTED,
-                            }}
-                            className="sp-lede"
-                        >
-                            {subtitle}
-                        </p>
-                    </div>
-
-                    {(showSearch || showSort) && (
+            <div>
+                {/* Heading and description live on the Framer canvas as real
+                    text layers. This component owns only what comes from the
+                    API, plus the controls that filter it. */}
+                {(showSearch || showSort) && (
+                    <header
+                        style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            justifyContent: columns === 1 ? "stretch" : "flex-end",
+                            gap: 10,
+                            marginBottom: 28,
+                        }}
+                    >
                         <div
                             style={{
                                 display: "flex",
@@ -554,8 +515,8 @@ export default function CourseGrid(props: CourseGridProps) {
                                 </select>
                             )}
                         </div>
-                    )}
-                </header>
+                    </header>
+                )}
 
                 {usingFallbackCurrency && coursesPhase === "ready" && (
                     <p className="sp-notice" role="status">
@@ -728,16 +689,10 @@ function CourseCard(props: {
                 styles cannot express -webkit-line-clamp reliably. */}
             <p className="sp-clamp-2">{course.description}</p>
 
-            <div
-                style={{
-                    marginTop: "auto",
-                    paddingTop: 20,
-                    display: "flex",
-                    alignItems: "baseline",
-                    justifyContent: "space-between",
-                    gap: 12,
-                }}
-            >
+            {/* marginTop:auto pins the price to the bottom of the card, so
+                prices line up across a row no matter how long each title or
+                description runs. */}
+            <div style={{ marginTop: "auto", paddingTop: 20 }}>
                 <span
                     style={{
                         fontSize: 22,
@@ -747,9 +702,6 @@ function CourseCard(props: {
                     }}
                 >
                     {formatCoursePrice(course, country)}
-                </span>
-                <span style={{ fontSize: 13, color: MUTED }}>
-                    {course.courseType}
                 </span>
             </div>
         </article>
@@ -875,7 +827,6 @@ const SCOPED_CSS = `
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
-.sp-lede { text-wrap: balance; }
 .sp-chip {
     display: inline-flex;
     background: #F3F3F8;
@@ -976,18 +927,6 @@ const SCOPED_CSS = `
 // ---------------------------------------------------------------------------
 
 addPropertyControls(CourseGrid, {
-    title: {
-        type: ControlType.String,
-        title: "Title",
-        defaultValue: "Courses built to be finished",
-    },
-    subtitle: {
-        type: ControlType.String,
-        title: "Subtitle",
-        defaultValue:
-            "Short, practical programmes with real projects. Prices update automatically for your region.",
-        displayTextArea: true,
-    },
     accentColor: {
         type: ControlType.Color,
         title: "Accent",
